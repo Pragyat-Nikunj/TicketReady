@@ -3,6 +3,8 @@ import { createServer as createHttpServer } from "node:http";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { toNodeHandler } from "@modelcontextprotocol/node";
+import { authenticateRequest } from "./middleware.js";
+import { initializeAuth } from "./auth.js";
 import { z } from "zod";
 
 function createMcpServer() {
@@ -384,17 +386,82 @@ function createMcpServer() {
   return server;
 }
 if (process.argv.includes("--http")) {
+  const issuer = process.env.OAUTH_ISSUER;
+  const metadataUrl = process.env.OAUTH_METADATA_URL;
+  const audience = process.env.MCP_PUBLIC_URL;
+
+  if (!issuer || !metadataUrl || !audience) {
+    throw new Error(
+      "OAUTH_ISSUER, OAUTH_METADATA_URL, and MCP_PUBLIC_URL must be configured",
+    );
+  }
+
+  await initializeAuth({
+    issuer,
+    metadataUrl,
+    audience,
+    requiredScopes: (process.env.MCP_REQUIRED_SCOPES ?? "mcp:tools")
+      .split(/\s+/)
+      .filter(Boolean),
+  });
   const handler = createMcpHandler(createMcpServer);
   const nodeHandler = toNodeHandler(handler);
 
-  const httpServer = createHttpServer((req, res) => {
+  const httpServer = createHttpServer(async (req, res) => {
+    const metadataPath = "/.well-known/oauth-protected-resource/mcp";
+
+    if (req.url?.split("?")[0] === metadataPath) {
+      const resource = process.env.MCP_PUBLIC_URL;
+      const issuer = process.env.OAUTH_ISSUER;
+
+      if (!resource || !issuer) {
+        res.writeHead(500);
+        res.end("OAuth configuration missing");
+        return;
+      }
+
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Cache-Control": "public, max-age=300",
+      });
+
+      res.end(
+        JSON.stringify({
+          resource,
+          authorization_servers: [issuer],
+          scopes_supported: (process.env.MCP_REQUIRED_SCOPES ?? "mcp:tools")
+            .split(/\s+/)
+            .filter(Boolean),
+          bearer_methods_supported: ["header"],
+        }),
+      );
+
+      return;
+    }
+
     if (req.url?.split("?")[0] !== "/mcp") {
       res.writeHead(404);
       res.end("Not found");
       return;
     }
 
-    nodeHandler(req, res);
+    try {
+      const authenticated = await authenticateRequest(req, res);
+
+      if (!authenticated) {
+        return;
+      }
+
+      nodeHandler(req, res);
+    } catch (error) {
+      console.error("MCP request error:", error);
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+      }
+      if (!res.writableEnded) {
+        res.end(JSON.stringify({ error: "Internal server error" }));
+      }
+    }
   });
 
   const port = Number(process.env.PORT ?? 3000);

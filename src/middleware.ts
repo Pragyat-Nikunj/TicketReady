@@ -8,10 +8,19 @@ export async function authenticateRequest(
 ): Promise<boolean> {
   const authorization = req.headers.authorization;
 
+  const publicUrl = process.env.MCP_PUBLIC_URL;
+
+  if (!publicUrl) {
+    throw new Error("MCP_PUBLIC_URL is not configured");
+  }
+
+  const resourcePath = new URL(publicUrl).pathname;
+  const metadataUrl =
+    `${new URL(publicUrl).origin}/.well-known/oauth-protected-resource${resourcePath}`;
+
   if (!authorization?.startsWith("Bearer ")) {
     res.writeHead(401, {
-      "WWW-Authenticate":
-        'Bearer resource_metadata="https://YOUR_PUBLIC_HOST/.well-known/oauth-protected-resource/mcp"',
+      "WWW-Authenticate": `Bearer resource_metadata="${metadataUrl}"`,
       "Content-Type": "application/json",
     });
     res.end(JSON.stringify({ error: "Missing bearer token" }));
@@ -30,7 +39,7 @@ export async function authenticateRequest(
     );
 
     res.writeHead(401, {
-      "WWW-Authenticate": "Bearer error=\"invalid_token\"",
+      "WWW-Authenticate": 'Bearer error="invalid_token"',
       "Content-Type": "application/json",
     });
     res.end(JSON.stringify({ error: "Invalid access token" }));
