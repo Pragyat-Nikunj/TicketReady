@@ -399,8 +399,8 @@ if (process.argv.includes("--http")) {
 
   const port = Number(process.env.PORT ?? 3000);
 
-  httpServer.listen(port, "127.0.0.1", () => {
-    console.log(`MCP HTTP server listening on http://127.0.0.1:${port}/mcp`);
+  httpServer.listen(port, "0.0.0.0", () => {
+    console.log(`MCP HTTP server listening on http://0.0.0.0:${port}/mcp`);
   });
 } else {
   await serveStdio(createMcpServer, {
