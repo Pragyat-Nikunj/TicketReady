@@ -1,9 +1,4 @@
-
-import {
-  createRemoteJWKSet,
-  jwtVerify,
-  type JWTPayload,
-} from "jose";
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 
 type AuthConfig = {
   issuer: string;
@@ -22,9 +17,7 @@ export async function initializeAuth(config: AuthConfig) {
   const response = await fetch(config.metadataUrl);
 
   if (!response.ok) {
-    throw new Error(
-      `Could not load OAuth metadata: HTTP ${response.status}`,
-    );
+    throw new Error(`Could not load OAuth metadata: HTTP ${response.status}`);
   }
 
   const metadata = (await response.json()) as {
@@ -53,9 +46,7 @@ export async function initializeAuth(config: AuthConfig) {
   verificationKeys = createRemoteJWKSet(jwksUrl);
 }
 
-export async function verifyAccessToken(
-  token: string,
-): Promise<JWTPayload> {
+export async function verifyAccessToken(token: string): Promise<JWTPayload> {
   if (!verificationKeys) {
     throw new Error("OAuth verifier has not been initialized");
   }
@@ -65,7 +56,8 @@ export async function verifyAccessToken(
     audience: trustedAudience,
     algorithms: ["RS256"],
   });
-
+  console.log("Token scope:", payload.scope);
+  console.log("Token permissions:", payload.permissions);
   if (typeof payload.exp !== "number") {
     throw new Error("Access token must have an expiration");
   }
