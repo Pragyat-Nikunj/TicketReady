@@ -1,28 +1,211 @@
-# TicketReady GitHub Issues MCP
+# TicketReady MCP Server
 
-This MCP server supports local stdio and remote Streamable HTTP. Remote mode is an OAuth 2.1 resource server: an external authorization server issues access tokens, and this service validates them before invoking MCP tools. It does not issue OAuth tokens itself.
+**An MCP server for interacting with GitHub issues using AI assistants.**
 
-## Remote OAuth configuration
+TicketReady connects AI assistants to GitHub through the Model Context Protocol (MCP). It exposes GitHub issue operations as tools that an MCP-compatible client can discover and invoke, enabling users to explore repositories, find issues, retrieve issue information, and create GitHub issues through natural language.
 
-1. Configure an OAuth authorization server that supports MCP-compatible authorization discovery and issues signed JWT access tokens.
-2. Register the MCP public URL as an audience/resource at that authorization server. Tokens must have `aud` exactly matching `MCP_PUBLIC_URL`, an `iss` matching `OAUTH_ISSUER`, an unexpired `exp`, a valid signing key in the issuer's JWKS, and the configured MCP scopes.
-3. Set `OAUTH_METADATA_URL` to the issuer's OpenID Connect discovery document (or an equivalent document that includes `issuer` and `jwks_uri`). The server checks that the metadata issuer matches `OAUTH_ISSUER` and loads the signing keys before listening.
-4. Publish the server behind HTTPS. Configure `MCP_TLS_CERT_FILE` and `MCP_TLS_KEY_FILE` for TLS at this process, or set `MCP_TLS_TERMINATED=true` only when a trusted reverse proxy provides HTTPS and the backend is not publicly reachable.
-5. Build and run with `npm run build` and `npm run start:http`.
+## Features
 
-The service publishes OAuth Protected Resource Metadata at the path-aware RFC 9728 URL for `MCP_PUBLIC_URL`. Its `WWW-Authenticate` challenge points clients at the resource metadata document. Set `MCP_ALLOWED_ORIGINS` to a comma-separated list of allowed origin hostnames when browser clients send an `Origin` header.
+- **GitHub Issue Search** — Search for issues across repositories using available GitHub tools.
+- **Issue Details** — Retrieve relevant information about GitHub issues.
+- **Create Issues** — Create GitHub issues with a title, description, labels, assignees, and milestone when provided.
+- **Structured Tool Responses** — Return readable text and structured data to supported MCP clients.
+- **MCP Integration** — Connect AI assistants to GitHub functionality through standardized MCP tools.
+- **HTTP and STDIO Transports** — Run the server over HTTP or as a local STDIO-based MCP server.
+- **TypeScript** — Built with TypeScript for type safety and maintainability.
 
-Required remote settings:
+## Tech Stack
 
-- `MCP_PUBLIC_URL`: public HTTPS resource URL, including the MCP path (for example `https://mcp.example.com/mcp`). This is also the required token audience.
-- `OAUTH_ISSUER`: exact issuer identifier in tokens.
-- `OAUTH_METADATA_URL`: HTTPS discovery document URL containing the matching `issuer` and a `jwks_uri`.
-- `MCP_REQUIRED_SCOPES`: whitespace-separated scopes, default `mcp`.
+- TypeScript
+- Node.js
+- Model Context Protocol (MCP)
+- GitHub REST API
+- GitHub Personal Access Token
+- HTTP and STDIO transports
 
-The verifier supports RS256, ES256, and EdDSA JWT signatures. It rejects unsigned tokens, unsupported algorithms, invalid signatures, mismatched issuer/audience, missing or expired expiry, future `nbf`, and missing required scopes. JWKS are cached for five minutes and metadata/key fetches have time and response-size bounds.
+## Architecture
 
-## Current security boundary
+```text
+User
+  |
+  v
+AI Assistant / MCP Client
+  |
+  v
+TicketReady MCP Server
+  |
+  v
+GitHub REST API
+  |
+  v
+GitHub Issues
+```
 
-Remote mode now validates caller identity and token audience before tool dispatch. The existing GitHub tool implementation still uses `GITHUB_TOKEN`/`GH_TOKEN`; per-user GitHub App authorization and repository permission mapping are the next security layer, not part of this remote OAuth boundary. Keep repository access restricted and writes disabled until that layer is configured. Writes require `GITHUB_ENABLE_WRITES=true`.
+The AI assistant invokes the tools exposed by TicketReady. The server processes each request, communicates with the GitHub API, and returns the result through MCP. The assistant then uses that result to respond to the user.
 
-For local development, run `npm run build` then `npm run start:stdio`. See `.env.example` for configuration names; put real secrets in a secret manager or local untracked environment file.
+## Getting Started
+
+### Prerequisites
+
+- Node.js
+- npm
+- A GitHub account
+- A GitHub Personal Access Token with the repository permissions required by your intended operations
+- An MCP-compatible client
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/Pragyat-Nikunj/TicketReady.git
+cd TicketReady
+```
+
+### 2. Install Dependencies
+
+```bash
+npm install
+```
+
+### 3. Configure Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+GITHUB_TOKEN=your_github_token
+PORT=3000
+```
+
+Replace `your_github_token` with your GitHub Personal Access Token.
+
+Use a token with only the permissions your tools require. Creating or modifying issues requires write access to the relevant repository.
+
+**Security:** Never commit your `.env` file or expose your GitHub token in client-side code, logs, or public repositories.
+
+### 4. Build the Project
+
+```bash
+npm run build
+```
+
+### 5. Run the MCP Server
+
+**HTTP transport**
+
+```bash
+node --env-file=.env build/index.js --http
+```
+
+The server listens on the configured port, defaulting to `3000`, and exposes the MCP endpoint at:
+
+```text
+http://localhost:3000/mcp
+```
+
+**STDIO transport**
+
+```bash
+node --env-file=.env build/index.js
+```
+
+Use STDIO when configuring a compatible local MCP client. Configure the client to launch the server using the appropriate Node.js command and working directory.
+
+## Available Capabilities
+
+TicketReady exposes GitHub issue functionality through MCP tools.
+
+| Capability | Description |
+|---|---|
+| Search issues | Find GitHub issues using the available search tool. |
+| Retrieve issue information | Access relevant issue details through the available tools. |
+| Create an issue | Create an issue in a specified repository. |
+| Optional issue fields | Provide a body, labels, assignees, and milestone when supported by the tool inputs. |
+
+The exact tool names and input schemas are defined by the server implementation.
+
+## Example Use Cases
+
+Once connected to an MCP-compatible AI assistant, you can make requests such as:
+
+- "Find open issues in `owner/repository`."
+- "Search for beginner-friendly issues related to Java."
+- "Show me the details of this GitHub issue."
+- "Create an issue in `owner/repository` titled 'Add input validation'."
+- "Create an issue with a description and appropriate labels."
+
+The assistant selects an available tool, sends the required arguments to TicketReady, and uses the returned result to formulate its response.
+
+## How Tool Responses Work
+
+TicketReady returns tool results through MCP so that the connected AI assistant can interpret them.
+
+For example, a successful issue-creation operation can return:
+
+```json
+{
+  "repository": "owner/repository",
+  "number": 42,
+  "title": "Add input validation",
+  "url": "https://github.com/owner/repository/issues/42"
+}
+```
+
+The fields shown here are illustrative. Actual fields depend on the response produced by the server's issue-summary function.
+
+The server can return both text content and structured content, allowing compatible clients to display the result or work with its fields.
+
+## Deployment
+
+TicketReady can be deployed to a hosting provider that supports Node.js applications, such as Render.
+
+Typical deployment configuration:
+
+**Build command**
+
+```bash
+npm ci && npm run build
+```
+
+**Start command**
+
+```bash
+node build/index.js --http
+```
+
+Configure `GITHUB_TOKEN` and any required environment variables through the hosting provider's environment settings. Do not upload your local `.env` file.
+
+After deployment, the MCP endpoint follows this pattern:
+
+```text
+https://your-service.example.com/mcp
+```
+
+For the current deployment, the endpoint is:
+
+```text
+https://ticketready.onrender.com/mcp
+```
+
+## Security Considerations
+
+The current HTTP configuration is intended for testing and development without OAuth authentication.
+
+- The HTTP endpoint does not authenticate incoming MCP requests.
+- Anyone who can reach a publicly deployed endpoint may be able to invoke its exposed tools.
+- GitHub operations run using the permissions of the configured GitHub token.
+- Use a token with the minimum necessary permissions.
+- Avoid exposing sensitive repositories or write operations through an unrestricted public endpoint.
+- Add an appropriate authentication and authorization layer before using the service in a production environment.
+
+
+## Project Goals
+
+TicketReady demonstrates how the Model Context Protocol can connect AI assistants with external developer tools. By exposing GitHub issue operations through a standardized interface, it makes repository exploration and issue management accessible through natural language.
+
+The project also provides practical experience with TypeScript, API integration, MCP tool definitions, asynchronous programming, and structured tool responses.
+
+## Author
+
+**Pragyat Nikunj**
+
+GitHub: [@Pragyat-Nikunj](https://github.com/Pragyat-Nikunj)
+
